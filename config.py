@@ -5,6 +5,7 @@ Wszystkie ustawienia bota w jednym miejscu.
 v2: dodano AI news sentiment, YFinance (SP500/US100), position tracking, trend filter mode
 """
 
+import os
 from dataclasses import dataclass, field
 from typing import Optional, List
 
@@ -14,7 +15,7 @@ class BotConfig:
     """Główna konfiguracja bota sygnałowego."""
 
     # ─── Discord ───────────────────────────────────────────────────────────
-    discord_webhook_url: str = ""
+    discord_webhook_url: str = ""  # Also reads from DISCORD_WEBHOOK env var
     discord_bot_name: str = "📊 Crypto Stoch Bot"
     discord_avatar_url: str = "https://cdn-icons-png.flaticon.com/512/6001/6001527.png"
     discord_role_id: Optional[str] = None        # ID roli do @mention
@@ -75,9 +76,9 @@ class BotConfig:
 
     # ─── AI News Sentiment ──────────────────────────────────────────────────
     use_sentiment: bool = False                  # Wlacz AI news sentiment filter
-    cryptopanic_api_key: str = ""                # CryptoPanic API key (PŁATNY, opcjonalny)
-    finnhub_api_key: str = ""                    # Finnhub API key (darmowy)
-    newsapi_key: str = ""                        # NewsAPI key (opcjonalny)
+    cryptopanic_api_key: str = ""                # Also reads from CRYPTOPANIC_KEY env var
+    finnhub_api_key: str = ""                    # Also reads from FINNHUB_KEY env var
+    newsapi_key: str = ""                        # Also reads from NEWSAPI_KEY env var
     sentiment_refresh_interval: int = 300        # Sekundy miedzy refresh sentimentu
     sentiment_block_threshold: float = 0.5       # |score| > tego → blokuj sygnal
 
@@ -96,7 +97,7 @@ class BotConfig:
     # ─── Position Tracking ──────────────────────────────────────────────────
     use_position_tracking: bool = True           # Sledzenie pozycji (INFO, nie egzekucja!)
     auto_open_positions: bool = False             # ⚠️ False = ALERT ONLY, True = auto-otwieraj
-    position_db_path: str = "positions.db"       # SQLite DB path
+    position_db_path: str = ""                   # Auto-detected: /app/data/positions.db in Docker, positions.db locally
     default_position_size_usd: float = 100       # Domyslny rozmiar pozycji (USD)
     max_open_positions: int = 10                  # Max otwartych pozycji
     position_timeout_hours: float = 72           # Max czas otwartej pozycji (godziny)
@@ -105,12 +106,28 @@ class BotConfig:
     status_interval: int = 3600                  # Co ile sekund wysyłać status na Discord
     log_level: str = "INFO"                      # DEBUG, INFO, WARNING, ERROR
 
+    def __post_init__(self):
+        """Resolve env vars for secrets and auto-detect DB path."""
+        if not self.discord_webhook_url:
+            self.discord_webhook_url = os.getenv("DISCORD_WEBHOOK", "")
+        if not self.cryptopanic_api_key:
+            self.cryptopanic_api_key = os.getenv("CRYPTOPANIC_KEY", "")
+        if not self.finnhub_api_key:
+            self.finnhub_api_key = os.getenv("FINNHUB_KEY", "")
+        if not self.newsapi_key:
+            self.newsapi_key = os.getenv("NEWSAPI_KEY", "")
+        if not self.position_db_path:
+            if os.path.isdir("/app/data"):
+                self.position_db_path = "/app/data/positions.db"
+            else:
+                self.position_db_path = "positions.db"
+
     def validate(self) -> List[str]:
         """Waliduj konfigurację. Zwraca listę błędów."""
         errors = []
         if not self.discord_webhook_url:
             errors.append("discord_webhook_url jest wymagany!")
-        if not self.discord_webhook_url.startswith("https://discord.com/api/webhooks/") and \
+        elif not self.discord_webhook_url.startswith("https://discord.com/api/webhooks/") and \
            not self.discord_webhook_url.startswith("https://discordapp.com/api/webhooks/"):
             errors.append(f"discord_webhook_url nie wygląda na prawidłowy webhook Discord")
         if self.scan_interval < 10:

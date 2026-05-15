@@ -255,6 +255,35 @@ class YFinanceDataFetcher:
         
         return self.fetch_ohlcv(symbol, timeframe, period=period, force_refresh=True)
     
+    def get_latest_price(self, symbol: str) -> Optional[float]:
+        """Pobierz aktualną cenę (last close z najnowszej świecy)."""
+        # Spróbuj z cache (szybko)
+        yf_ticker = self._resolve_ticker(symbol)
+        for interval in ["1m", "5m", "15m", "1h"]:
+            cache_key = f"{yf_ticker}_{TF_TO_YF.get(interval, interval)}"
+            if cache_key in self._cache:
+                df, _ = self._cache[cache_key]
+                if not df.empty:
+                    return float(df['close'].iloc[-1])
+
+        # Fallback: pobierz 1m dane
+        try:
+            df = self.fetch_ohlcv(symbol, "1m", period="1d")
+            if not df.empty:
+                return float(df['close'].iloc[-1])
+        except Exception:
+            pass
+
+        # Ostateczny fallback: 1h dane
+        try:
+            df = self.fetch_ohlcv(symbol, "1h", period="5d")
+            if not df.empty:
+                return float(df['close'].iloc[-1])
+        except Exception:
+            pass
+
+        return None
+
     @property
     def stats(self) -> dict:
         return {
@@ -332,7 +361,17 @@ class UnifiedDataFetcher:
             fetcher = self._yfinance
         
         return fetcher.fetch_ohlcv(symbol, timeframe, force_refresh=force_refresh)
-    
+
+    def get_latest_price(self, symbol: str) -> Optional[float]:
+        """Pobierz aktualną cenę — deleguj do odpowiedniego backendu."""
+        if self._is_crypto(symbol):
+            fetcher = self._get_binance()
+            if hasattr(fetcher, 'get_latest_price'):
+                return fetcher.get_latest_price(symbol)
+            return None
+        else:
+            return self._yfinance.get_latest_price(symbol)
+
     @property
     def stats(self) -> dict:
         result = {"mode": "unified"}

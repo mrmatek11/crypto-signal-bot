@@ -226,7 +226,7 @@ class StochSignalBot:
                 if self.notifier and self._errors <= 3:
                     try:
                         self.notifier.send_error(str(e))
-                    except:
+                    except Exception:
                         pass
 
             # Czekaj do następnego skanu
@@ -262,7 +262,7 @@ class StochSignalBot:
                     if self.notifier and not self.test_mode:
                         try:
                             self._send_position_close_notification(pos)
-                        except:
+                        except Exception:
                             pass
             except Exception as e:
                 logger.debug(f"Position check error: {e}")
@@ -332,13 +332,20 @@ class StochSignalBot:
         elapsed = time.time() - cycle_start
         logger.info(f"  Skan zakończony w {elapsed:.1f}s — sygnałów: {total_signals}")
 
+        # ─── Clean stale cooldowns ──────────────────────────────────────
+        if self._scan_count % 20 == 0:
+            now = time.time()
+            stale = [k for k, v in self._cooldowns.items() if now - v > self.config.cooldown_per_signal]
+            for k in stale:
+                del self._cooldowns[k]
+
         # ─── Periodic stats ────────────────────────────────────────────
         if self.position_tracker and self._scan_count % 10 == 0:
             try:
                 stats = self.position_tracker.get_stats()
                 if stats["total_trades"] > 0:
                     logger.info(f"  📊 Positions: {stats['total_trades']} trades | WR: {stats['win_rate']}% | PnL: ${stats['total_pnl']:+,.2f} | PF: {stats['profit_factor']}")
-            except:
+            except Exception:
                 pass
 
         # Status update na Discord
@@ -383,7 +390,7 @@ class StochSignalBot:
                     df = self.fetcher.fetch_ohlcv(symbol, self.config.timeframes[0])
                     if not df.empty:
                         prices[symbol] = df['close'].iloc[-1]
-            except:
+            except Exception:
                 pass
 
         return prices
@@ -417,7 +424,7 @@ class StochSignalBot:
             "embeds": [embed],
         }
 
-        self.notifier._send_webhook(payload)
+        self.notifier.send_custom_embed(embed)
 
     def _is_on_cooldown(self, key: str) -> bool:
         """Sprawdź czy sygnał jest na cooldown (anti-spam)."""
@@ -449,7 +456,7 @@ class StochSignalBot:
                                 "d_smooth": self.config.stoch_d_smooth,
                             }
                         )
-                except:
+                except Exception:
                     pass
 
     def _handle_signal(self, signum, frame):

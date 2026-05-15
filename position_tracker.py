@@ -191,10 +191,10 @@ class PositionTracker:
         Returns:
             Position object lub None jeśli nie można otworzyć
         """
-        # Sprawdź limit
-        open_count = self.get_open_count(symbol)
-        if open_count >= self.max_open:
-            print(f"[PositionTracker] Max open positions reached ({self.max_open})")
+        # Sprawdź limit (GLOBALNY — nie per-symbol)
+        global_open = self.get_open_count()  # bez argumentu = globalnie
+        if global_open >= self.max_open:
+            print(f"[PositionTracker] Max open positions reached ({global_open}/{self.max_open} globally)")
             return None
 
         # Sprawdź czy nie ma już otwartej pozycji w tym samym kierunku

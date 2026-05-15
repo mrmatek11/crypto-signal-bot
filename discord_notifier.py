@@ -6,9 +6,14 @@ Piękne embedy z kolorami, ikonami i formatowaniem.
 
 import requests
 import json
+import logging
+import time
 from datetime import datetime, timezone
 from typing import Optional, List
+from collections import deque
 from signal_detector import Signal
+
+logger = logging.getLogger(__name__)
 
 
 class DiscordNotifier:
@@ -38,7 +43,9 @@ class DiscordNotifier:
         self.mention_on_long = mention_on_long
         self.mention_on_short = mention_on_short
         self.quiet_hours = quiet_hours
-        self._last_signal_keys = set()  # Anti-spam: nie wysyłaj dwa razy tego samego
+        self._last_signal_keys = deque(maxlen=500)  # Anti-spam: nie wysyłaj dwa razy tego samego
+        self._last_signal_keys_set = set()  # For O(1) lookup
+        self._last_send_time = 0  # Rate limiting
 
     def send_signal(self, signal: Signal, force: bool = False) -> bool:
         """
@@ -47,13 +54,22 @@ class DiscordNotifier:
         """
         # Anti-spam: sprawdź czy ten sygnał już był wysłany
         signal_key = f"{signal.symbol}_{signal.timeframe}_{signal.signal_type}_{signal.k_value}_{signal.timestamp}"
-        if signal_key in self._last_signal_keys and not force:
+        if signal_key in self._last_signal_keys_set and not force:
             return False
-        self._last_signal_keys.add(signal_key)
+        # Evict oldest if at capacity
+        if len(self._last_signal_keys) >= 500:
+            try:
+                oldest = self._last_signal_keys.popleft()
+                self._last_signal_keys_set.discard(oldest)
+            except IndexError:
+                pass
+        self._last_signal_keys.append(signal_key)
+        self._last_signal_keys_set.add(signal_key)
 
-        # Ogranicz rozmiar cache anti-spam
-        if len(self._last_signal_keys) > 500:
-            self._last_signal_keys = set(list(self._last_signal_keys)[-250:])
+        # Rate limit: min 0.5s between sends
+        now = time.time()
+        if not force and now - self._last_send_time < 0.5:
+            time.sleep(0.5 - (now - self._last_send_time))
 
         # Quiet hours check
         if self.quiet_hours and not force:
@@ -89,7 +105,9 @@ class DiscordNotifier:
         if self.avatar_url:
             payload["avatar_url"] = self.avatar_url
 
-        return self._send_webhook(payload)
+        result = self._send_webhook(payload)
+        self._last_send_time = time.time()
+        return result
 
     def send_signals_batch(self, signals: List[Signal]) -> int:
         """Wyślij listę sygnałów. Zwraca liczbę wysłanych."""
@@ -157,6 +175,16 @@ class DiscordNotifier:
             "embeds": [embed],
         }
 
+        return self._send_webhook(payload)
+
+    def send_custom_embed(self, embed: dict) -> bool:
+        """Wyślij custom embed na Discord (public API)."""
+        payload = {
+            "username": self.bot_name,
+            "embeds": [embed],
+        }
+        if self.avatar_url:
+            payload["avatar_url"] = self.avatar_url
         return self._send_webhook(payload)
 
     def send_error(self, error_msg: str) -> bool:
@@ -426,12 +454,17 @@ class DiscordNotifier:
             )
             if response.status_code in (200, 204):
                 return True
+            elif response.status_code == 429:
+                retry_after = float(response.headers.get("Retry-After", "1"))
+                logger.warning(f"[Discord] Rate limited, retrying after {retry_after}s")
+                time.sleep(retry_after)
+                return self._send_webhook(payload)
             else:
-                print(f"[Discord] Error {response.status_code}: {response.text[:200]}")
+                logger.warning(f"[Discord] Error {response.status_code}: {response.text[:200]}")
                 return False
         except requests.exceptions.Timeout:
-            print("[Discord] Timeout — webhook nie odpowiada")
+            logger.warning("[Discord] Timeout — webhook nie odpowiada")
             return False
         except Exception as e:
-            print(f"[Discord] Błąd wysyłki: {e}")
+            logger.warning(f"[Discord] Błąd wysyłki: {e}")
             return False
