@@ -12,9 +12,10 @@ services:
     volumes:
       - bot-data:/app/data
 
-    # Timezone
+    # Timezone + unbuffered Python logs
     environment:
       - TZ=Europe/Warsaw
+      - PYTHONUNBUFFERED=1
 
     # Resource limits (lightweight — ~128MB RAM)
     deploy:
