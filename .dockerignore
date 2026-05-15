@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+*.db
+.git/
+.env
+.venv/
+*.egg-info
+*.log
+README_SETUP.txt
