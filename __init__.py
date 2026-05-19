@@ -1,8 +1,9 @@
 """
-Crypto Stoch Signal Bot — Discord Notifier
+Crypto Stoch Signal Bot — Discord Notifier + GLM AI + KOMBAJN
 
-Monitoruje pary krypto na żywo, wykrywa sygnały Stochastic (7,3,2)
-i wysyła alerty na Discord przez Webhook.
+Monitoruje krypto, surowce, forex i indeksy na żywo,
+wykrywa sygnały Stochastic (7,3,2) + NWO + CVD,
+wysyła alerty na Discord + AI analiza GLM + Market Scanner KOMBAJN.
 """
 
 from .config import BotConfig

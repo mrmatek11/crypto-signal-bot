@@ -1,14 +1,31 @@
 """
-Data Fetcher — Yahoo Finance (SP500, US100, akcje)
+Data Fetcher — Yahoo Finance (indeksy, forex, towary, akcje)
 ═════════════════════════════════════════════════════════════════════════
 
 Alternatywny provider danych do data_fetcher.py (który używa ccxt/Binance).
 
-Obsługuje:
-  - SPY (SP500 ETF)
-  - QQQ (NASDAQ 100 ETF)
+Obsługuje (v4):
+  ─── Indeksy ───
+  - S&P 500 (SPY / ^GSPC)
+  - NASDAQ 100 (QQQ)
+  - DAX (^GDAXI)
+  - Nikkei 225 (^N225)
+  - WIG / Polski rynek (EPOL — iShares MSCI Poland ETF)
   - Dow Jones (DIA)
-  - Dowolne tickery akcji (AAPL, TSLA, itd.)
+  - FTSE (^FTSE)
+
+  ─── Forex ───
+  - EUR/USD (EURUSD=X)
+  - GBP/USD, USD/JPY, USD/PLN, itd.
+
+  ─── Towary (Commodities) ───
+  - Złoto (GC=F / GLD)
+  - Srebro (SI=F / SLV)
+  - Ropa (CL=F)
+  - Gaz ziemny (NG=F)
+
+  ─── Akcje ───
+  - Dowolne tickery (AAPL, TSLA, itd.)
 
 Dane:
   - 1h, 4h, 1d: darmowe, miesiące/lat danych
@@ -49,13 +66,139 @@ CRYPTO_TO_YF = {
 
 # Mapowanie indeksów → Yahoo Finance tickery
 INDEX_TICKERS = {
-    "SP500": "SPY",
-    "US100": "QQQ",
-    "NASDAQ": "QQQ",
-    "DOW": "DIA",
-    "DAX": "^GDAXI",
-    "FTSE": "^FTSE",
-    "NIKKEI": "^N225",
+    # ─── US ───
+    "SP500": "SPY",          # S&P 500 ETF
+    "^GSPC": "^GSPC",        # S&P 500 index bezpośrednio
+    "US100": "QQQ",          # NASDAQ 100 ETF
+    "NASDAQ": "QQQ",         # alias
+    "DOW": "DIA",            # Dow Jones ETF
+    # ─── Europa ───
+    "DAX": "^GDAXI",         # DAX 40 (Niemcy)
+    "FTSE": "^FTSE",         # FTSE 100 (UK)
+    "CAC40": "^FCHI",        # CAC 40 (Francja)
+    # ─── Azja ───
+    "NIKKEI": "^N225",        # Nikkei 225 (Japonia)
+    "NIKKEI225": "^N225",     # alias
+    "HSI": "^HSI",           # Hang Seng (Hong Kong)
+    # ─── Polska ───
+    "WIG": "EPOL",           # iShares MSCI Poland ETF (proxy dla WIG)
+    "WIG20": "EPOL",         # to samo — YFinance nie ma bezpośredniego WIG20
+    "POLAND": "EPOL",        # alias
+}
+
+# Mapowanie forex → Yahoo Finance tickery
+FOREX_TICKERS = {
+    "EUR/USD": "EURUSD=X",
+    "GBP/USD": "GBPUSD=X",
+    "USD/JPY": "USDJPY=X",
+    "USD/CHF": "USDCHF=X",
+    "AUD/USD": "AUDUSD=X",
+    "USD/CAD": "USDCAD=X",
+    "NZD/USD": "NZDUSD=X",
+    "EUR/GBP": "EURGBP=X",
+    "EUR/PLN": "EURPLN=X",
+    "USD/PLN": "USDPLN=X",
+    "EUR/JPY": "EURJPY=X",
+    "GBP/JPY": "GBPJPY=X",
+}
+
+# Mapowanie towarów → Yahoo Finance tickery
+COMMODITY_TICKERS = {
+    "GOLD": "GC=F",           # Złoto (COMEX futures)
+    "XAU/USD": "GC=F",        # alias
+    "SILVER": "SI=F",         # Srebro (COMEX futures)
+    "XAG/USD": "SI=F",        # alias
+    "OIL": "CL=F",            # Ropa WTI (NYMEX futures)
+    "CRUDE": "CL=F",          # alias
+    "NATGAS": "NG=F",         # Gaz ziemny (NYMEX futures)
+    "COPPER": "HG=F",         # Miedź (COMEX futures)
+    # ETF alternatives (dłuższa historia, lepsza płynność)
+    "GOLD_ETF": "GLD",        # SPDR Gold Shares ETF
+    "SILVER_ETF": "SLV",      # iShares Silver Trust ETF
+}
+
+# Typ rynku per symbol (do wyświetlania i formatowania)
+MARKET_TYPE_MAP = {
+    # Indeksy
+    "SP500": "INDEX", "^GSPC": "INDEX", "US100": "INDEX", "NASDAQ": "INDEX",
+    "DOW": "INDEX", "DAX": "INDEX", "FTSE": "INDEX", "CAC40": "INDEX",
+    "NIKKEI": "INDEX", "NIKKEI225": "INDEX", "HSI": "INDEX",
+    "WIG": "INDEX", "WIG20": "INDEX", "POLAND": "INDEX",
+    # Forex
+    "EUR/USD": "FOREX", "GBP/USD": "FOREX", "USD/JPY": "FOREX",
+    "USD/CHF": "FOREX", "AUD/USD": "FOREX", "USD/CAD": "FOREX",
+    "NZD/USD": "FOREX", "EUR/GBP": "FOREX", "EUR/PLN": "FOREX",
+    "USD/PLN": "FOREX", "EUR/JPY": "FOREX", "GBP/JPY": "FOREX",
+    # Towary
+    "GOLD": "COMMODITY", "XAU/USD": "COMMODITY", "SILVER": "COMMODITY",
+    "XAG/USD": "COMMODITY", "OIL": "COMMODITY", "CRUDE": "COMMODITY",
+    "NATGAS": "COMMODITY", "COPPER": "COMMODITY",
+    "GOLD_ETF": "COMMODITY", "SILVER_ETF": "COMMODITY",
+}
+
+# Domyślne timeframe'y per typ rynku (tradycyjne rynki = wyższe TF)
+MARKET_DEFAULT_TIMEFRAMES = {
+    "CRYPTO": ["5m", "15m", "1h", "4h"],
+    "INDEX": ["1h", "4h", "1d"],
+    "FOREX": ["1h", "4h", "1d"],
+    "COMMODITY": ["1h", "4h", "1d"],
+}
+
+# Timeframe overrides per asset class (used by bot.py to filter valid TF/symbol combos)
+ASSET_TF_OVERRIDES = {
+    "INDEX": ["15m", "1h", "4h", "1d"],     # Indeksy: min 15m (YFinance limit)
+    "FOREX": ["15m", "1h", "4h", "1d"],      # Forex: min 15m
+    "COMMODITY": ["15m", "1h", "4h", "1d"],   # Towary: min 15m
+    # CRYPTO: all TFs allowed (not in dict = no restriction)
+}
+
+
+def get_asset_class(symbol: str) -> str:
+    """Zwróć klasę assetu (crypto, index, forex, commodity, stock).
+    
+    Alias dla YFinanceDataFetcher.get_market_type() ale lowercase.
+    Używane przez bot.py do filtrowania timeframe'ów.
+    """
+    market_type = YFinanceDataFetcher.get_market_type(symbol)
+    return market_type.lower()
+
+# Formatowanie ceny per typ rynku
+PRICE_FORMAT = {
+    "CRYPTO": ",.2f",
+    "INDEX": ",.2f",
+    "FOREX": ",.5f",
+    "COMMODITY": ",.2f",
+}
+
+# Emoji per typ rynku
+MARKET_EMOJI = {
+    "CRYPTO": "\u20bf",    # ₿
+    "INDEX": "\U0001f4c8",  # 📈
+    "FOREX": "\U0001f4b1",  # 💱
+    "COMMODITY": "\U0001f3c6",  # 🏆
+}
+
+# Pełne nazwy instrumentów
+INSTRUMENT_NAMES = {
+    "SP500": "S&P 500",
+    "US100": "NASDAQ 100",
+    "DAX": "DAX 40",
+    "NIKKEI": "Nikkei 225",
+    "WIG": "WIG (via EPOL)",
+    "FTSE": "FTSE 100",
+    "CAC40": "CAC 40",
+    "DOW": "Dow Jones",
+    "HSI": "Hang Seng",
+    "EUR/USD": "EUR/USD",
+    "GBP/USD": "GBP/USD",
+    "USD/JPY": "USD/JPY",
+    "USD/PLN": "USD/PLN",
+    "EUR/PLN": "EUR/PLN",
+    "GOLD": "Gold (XAU/USD)",
+    "SILVER": "Silver (XAG/USD)",
+    "OIL": "Crude Oil WTI",
+    "NATGAS": "Natural Gas",
+    "COPPER": "Copper",
 }
 
 # Mapowanie timeframe → Yahoo Finance interval
@@ -93,7 +236,9 @@ class YFinanceDataFetcher:
     
     Zalety vs ccxt:
     - Darmowe, bez API key
-    - Indeksy giełdowe (SP500, NASDAQ)
+    - Indeksy giełdowe (SP500, NASDAQ, DAX, Nikkei)
+    - Forex (EUR/USD, GBP/USD)
+    - Towary (złoto, srebro, ropa)
     - Akcje (AAPL, TSLA)
     - Krypto też działa (BTC-USD)
     
@@ -128,20 +273,74 @@ class YFinanceDataFetcher:
     
     def _resolve_ticker(self, symbol: str) -> str:
         """Przekonwertuj symbol na Yahoo Finance ticker."""
+        sym_upper = symbol.upper()
+        
         # Sprawdź indeksy
-        if symbol.upper() in INDEX_TICKERS:
-            return INDEX_TICKERS[symbol.upper()]
+        if sym_upper in INDEX_TICKERS:
+            return INDEX_TICKERS[sym_upper]
+        
+        # Sprawdź forex
+        if sym_upper in FOREX_TICKERS:
+            return FOREX_TICKERS[sym_upper]
+        
+        # Sprawdź towary
+        if sym_upper in COMMODITY_TICKERS:
+            return COMMODITY_TICKERS[sym_upper]
         
         # Sprawdź krypto
         if symbol in CRYPTO_TO_YF:
             return CRYPTO_TO_YF[symbol]
         
-        # Sprawdź czy to już ticker YF (zawiera - lub .)
-        if "-" in symbol or "." in symbol:
+        # Sprawdź czy to już ticker YF (zawiera - lub . lub =)
+        if "-" in symbol or "." in symbol or "=" in symbol:
             return symbol
         
         # Default: traktuj jako stock ticker
         return symbol
+    
+    @staticmethod
+    def get_market_type(symbol: str) -> str:
+        """Zwróć typ rynku dla symbolu (CRYPTO, INDEX, FOREX, COMMODITY, STOCK)."""
+        sym_upper = symbol.upper()
+        
+        # Sprawdź mapę
+        if sym_upper in MARKET_TYPE_MAP:
+            return MARKET_TYPE_MAP[sym_upper]
+        
+        # Krypto patterns
+        for pattern in ["/USDT", "/BTC", "/ETH", "/BNB"]:
+            if pattern in sym_upper and "=" not in symbol:
+                return "CRYPTO"
+        # /USD pattern but not forex and not commodity
+        if "/USD" in sym_upper and sym_upper not in FOREX_TICKERS and sym_upper not in ("XAU/USD", "XAG/USD"):
+            return "CRYPTO"
+        
+        # Forex patterns
+        if "=" in symbol or sym_upper in FOREX_TICKERS:
+            return "FOREX"
+        
+        # Index patterns
+        if sym_upper.startswith("^") or sym_upper in INDEX_TICKERS:
+            return "INDEX"
+        
+        # Commodity patterns
+        if sym_upper in COMMODITY_TICKERS:
+            return "COMMODITY"
+        
+        return "STOCK"
+    
+    @staticmethod
+    def get_instrument_name(symbol: str) -> str:
+        """Zwróć pełną nazwę instrumentu."""
+        sym_upper = symbol.upper()
+        return INSTRUMENT_NAMES.get(sym_upper, symbol)
+    
+    @staticmethod
+    def format_price(price: float, symbol: str) -> str:
+        """Formatuj cenę z odpowiednią precyzją dla typu rynku."""
+        market_type = YFinanceDataFetcher.get_market_type(symbol)
+        fmt = PRICE_FORMAT.get(market_type, ",.2f")
+        return f"${price:{fmt}}"
     
     def fetch_ohlcv(
         self,
@@ -154,7 +353,7 @@ class YFinanceDataFetcher:
         Pobierz dane OHLCV z Yahoo Finance.
         
         Args:
-            symbol: Ticker (np. "SPY", "BTC/USDT", "AAPL") lub alias ("SP500", "US100")
+            symbol: Ticker (np. "SPY", "BTC/USDT", "EUR/USD", "GOLD") lub alias ("SP500", "DAX")
             timeframe: Interwał ("1m", "5m", "15m", "1h", "4h", "1d")
             period: Okres danych (np. "1mo", "6mo", "1y", "max"). Jeśli None, auto-detect.
             force_refresh: Wymuś odświeżenie cache.
@@ -301,13 +500,16 @@ class UnifiedDataFetcher:
     """
     Automatycznie wybiera źródło danych:
     - Krypto (BTC/USDT, ETH/USDT) → Binance (ccxt)
-    - Indeksy/akcje (SPY, SP500, AAPL) → Yahoo Finance
+    - Indeksy/Forex/Towary/Akcje → Yahoo Finance
     
     Jeden interfejs, dwa backendy.
+    
+    v4: pełne wsparcie dla forex (EUR/USD), towarów (Gold, Silver),
+        indeksów (S&P500, DAX, Nikkei, WIG).
     """
     
     # Krypto symbols (use Binance)
-    CRYPTO_PATTERNS = ["/USDT", "/USD", "/BTC", "/ETH", "/BNB", "/BUSD"]
+    CRYPTO_PATTERNS = ["/USDT", "/BTC", "/ETH", "/BNB", "/BUSD"]
     
     def __init__(
         self,
@@ -331,22 +533,48 @@ class UnifiedDataFetcher:
         return self._binance
     
     def _is_crypto(self, symbol: str) -> bool:
-        """Czy to krypto (dla Binance)?"""
-        # Check known crypto patterns
+        """Czy to krypto (dla Binance)? Jeśli nie, użyj YFinance."""
+        sym_upper = symbol.upper()
+        
+        # Known non-crypto categories — check FIRST
+        if sym_upper in INDEX_TICKERS:
+            return False
+        if sym_upper in FOREX_TICKERS:
+            return False
+        if sym_upper in COMMODITY_TICKERS:
+            return False
+        
+        # Forex pattern: contains = (EURUSD=X)
+        if "=" in symbol:
+            return False
+        
+        # YF-style ticker (contains ^ for indices like ^GDAXI)
+        if "^" in symbol:
+            return False
+        
+        # YF-style ticker (contains - like BTC-USD, but that's in CRYPTO_TO_YF)
+        if "-" in symbol and symbol not in CRYPTO_TO_YF:
+            return False
+        
+        # Known crypto patterns
         for pattern in self.CRYPTO_PATTERNS:
-            if pattern in symbol.upper():
+            if pattern in sym_upper:
                 return True
         
-        # Check known index aliases
-        if symbol.upper() in INDEX_TICKERS:
-            return False
+        # /USD pattern — could be crypto or commodity
+        if "/USD" in sym_upper:
+            # XAU/USD, XAG/USD are commodities
+            if sym_upper in ("XAU/USD", "XAG/USD"):
+                return False
+            # Other /USD is crypto (BTC/USD etc, though Binance prefers /USDT)
+            return True
         
-        # Check if it's a YF-style ticker (contains - or .)
-        if "-" in symbol or "." in symbol:
-            return False
-        
-        # Default: jeśli jest / to krypto, inaczej stock
-        return "/" in symbol
+        # Default: not crypto → YFinance
+        return False
+    
+    def get_market_type(self, symbol: str) -> str:
+        """Zwróć typ rynku dla symbolu."""
+        return YFinanceDataFetcher.get_market_type(symbol)
     
     def fetch_ohlcv(
         self,

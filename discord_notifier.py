@@ -29,7 +29,7 @@ class DiscordNotifier:
     def __init__(
         self,
         webhook_url: str,
-        bot_name: str = "Crypto Signal Bot",
+        bot_name: str = "Multi-Asset Signal Bot",
         avatar_url: str = "",
         mention_role_id: Optional[str] = None,   # ID roli do @mention
         mention_on_long: bool = True,
@@ -406,6 +406,58 @@ class DiscordNotifier:
                 "name": "📰 AI Sentiment",
                 "value": sent_text,
                 "inline": False
+            })
+
+        # GLM AI Signal Score
+        glm_score = signal.extra_data.get("glm_score")
+        glm_rec = signal.extra_data.get("glm_recommendation")
+        glm_analysis = signal.extra_data.get("glm_analysis")
+        glm_factors = signal.extra_data.get("glm_key_factors", [])
+        glm_risks = signal.extra_data.get("glm_risks", [])
+        if glm_score is not None:
+            score_emoji = {"TAKE": "\u2705", "WATCH": "\ud83d\udc40", "SKIP": "\u274c"}.get(glm_rec, "\u26aa")
+            score_bar = "\ud83d\udd25" if glm_score >= 8 else ("\ud83d\udfe2" if glm_score >= 6 else ("\ud83d\udfe1" if glm_score >= 4 else "\ud83d\udd34"))
+            glm_text = f"{score_bar} {glm_score}/10 {score_emoji} {glm_rec}"
+            if glm_analysis:
+                glm_text += f"\n\ud83d\udca1 {glm_analysis}"
+            if glm_factors:
+                glm_text += f"\n\u2705 Factors: {', '.join(glm_factors[:3])}"
+            if glm_risks:
+                glm_text += f"\n\u26a0\ufe0f Risks: {', '.join(glm_risks[:3])}"
+            fields.append({
+                "name": "🧠 GLM AI Score",
+                "value": glm_text,
+                "inline": False
+            })
+
+        # GLM Regime
+        glm_regime = signal.extra_data.get("glm_regime")
+        glm_regime_bias = signal.extra_data.get("glm_regime_bias")
+        if glm_regime:
+            regime_emoji = {"trending_up": "📈", "trending_down": "📉", "volatile": "⚡", "ranging": "↔️", "quiet": "😴"}.get(glm_regime, "❓")
+            bias_emoji = {"bullish": "🟢", "bearish": "🔴", "neutral": "⚪"}.get(glm_regime_bias, "")
+            regime_text = f"{regime_emoji} {glm_regime.upper()}"
+            if glm_regime_bias:
+                regime_text += f" | Bias: {bias_emoji} {glm_regime_bias.upper()}"
+            fields.append({
+                "name": "📊 GLM Regime",
+                "value": regime_text,
+                "inline": True
+            })
+
+        # GLM Multi-TF Confluence
+        glm_conf_score = signal.extra_data.get("glm_confluence_score")
+        glm_conf_dir = signal.extra_data.get("glm_confluence_direction")
+        glm_conf_tf = signal.extra_data.get("glm_confluence_strongest_tf")
+        if glm_conf_score is not None:
+            conf_emoji = {"bullish": "🟢", "bearish": "🔴", "mixed": "🟡", "neutral": "⚪"}.get(glm_conf_dir, "⚪")
+            conf_text = f"{conf_emoji} {glm_conf_score}/10 {glm_conf_dir.upper()}"
+            if glm_conf_tf:
+                conf_text += f" | Strongest: {glm_conf_tf}"
+            fields.append({
+                "name": "🔀 GLM Confluence",
+                "value": conf_text,
+                "inline": True
             })
 
         # Risk warning (against trend)

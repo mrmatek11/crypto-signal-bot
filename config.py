@@ -2,7 +2,8 @@
 Configuration Module
 Wszystkie ustawienia bota w jednym miejscu.
 
-v2: dodano AI news sentiment, YFinance (SP500/US100), position tracking, trend filter mode
+v4: + Market Scanner KOMBAJN (Pulse, Volatility, S/R, Sessions, Correlation)
+v3: + GLM AI Analyst, + multi-asset (złoto, srebro, forex, indeksy globalne)
 """
 
 import os
@@ -12,23 +13,23 @@ from typing import Optional, List
 
 @dataclass
 class BotConfig:
-    """Główna konfiguracja bota sygnałowego."""
+    """Glowna konfiguracja bota sygnalowego."""
 
-    # ─── Discord ───────────────────────────────────────────────────────────
+    # --- Discord ------------------------------------------------------------
     discord_webhook_url: str = ""  # Also reads from DISCORD_WEBHOOK env var
-    discord_bot_name: str = "📊 Crypto Stoch Bot"
+    discord_bot_name: str = "📊 Multi-Asset Signal Bot"
     discord_avatar_url: str = "https://cdn-icons-png.flaticon.com/512/6001/6001527.png"
     discord_role_id: Optional[str] = None        # ID roli do @mention
     mention_on_long: bool = True
     mention_on_short: bool = True
     quiet_hours: Optional[dict] = None           # {"start": 23, "end": 7} UTC
 
-    # ─── Exchange ──────────────────────────────────────────────────────────
+    # --- Exchange -----------------------------------------------------------
     exchange: str = "binance"
-    rate_limit_ms: int = 500                      # ms między requestami
+    rate_limit_ms: int = 500                      # ms miedzy requestami
     cache_ttl: int = 30                           # sekundy cache'u
 
-    # ─── Watchlist ─────────────────────────────────────────────────────────
+    # --- Watchlist (Crypto) -------------------------------------------------
     symbols: List[str] = field(default_factory=lambda: [
         "BTC/USDT",
         "ETH/USDT",
@@ -48,62 +49,105 @@ class BotConfig:
         "1h",
     ])
 
-    # ─── Stochastic Settings ───────────────────────────────────────────────
+    # --- Multi-Asset Symbols ------------------------------------------------
+    # Surowce
+    commodity_symbols: List[str] = field(default_factory=lambda: [
+        "XAU/USD",      # Zloto
+        "XAG/USD",      # Srebro
+    ])
+
+    # Forex
+    forex_symbols: List[str] = field(default_factory=lambda: [
+        "EUR/USD",
+    ])
+
+    # Indeksy globalne
+    index_symbols: List[str] = field(default_factory=lambda: [
+        "SP500",        # S&P 500 (via SPY ETF)
+        "DAX",          # DAX (Niemcy)
+        "NIKKEI",       # Nikkei 225 (Japonia)
+        "WIG",          # WIG (GPW Polska)
+    ])
+
+    # --- Stochastic Settings ------------------------------------------------
     stoch_k_length: int = 7
     stoch_k_smooth: int = 3
     stoch_d_smooth: int = 2
     oversold_threshold: float = 20.0
     overbought_threshold: float = 80.0
 
-    # ─── Signal Filters ────────────────────────────────────────────────────
-    require_crossover: bool = True               # K musi przeciąć D (nie tylko być w strefie)
+    # --- Signal Filters -----------------------------------------------------
+    require_crossover: bool = True               # K musi przeciac D
     rsi_filter: bool = False                     # Dodatkowy filtr RSI
     rsi_oversold: float = 35.0
     rsi_overbought: float = 65.0
     volume_filter: bool = False                  # Filtr wolumenu
     volume_mult: float = 1.5
 
-    # ─── Trend Filter ─────────────────────────────────────────────────────
+    # --- Trend Filter -------------------------------------------------------
     trend_filter_mode: str = "alert"              # "alert", "block", "off"
-    # alert = alertuj z ostrzezeniem (default)
-    # block = blokuj sygnal w ogole
-    # off = brak filtra trendu
 
-    # ─── Scanning ──────────────────────────────────────────────────────────
-    scan_interval: int = 60                      # Sekundy między skanami
-    candles_per_fetch: int = 100                 # Ile świec pobierać
-    cooldown_per_signal: int = 300               # Sekundy cooldown dla tego samego sygnału
+    # --- Scanning -----------------------------------------------------------
+    scan_interval: int = 60                      # Sekundy miedzy skanami
+    candles_per_fetch: int = 100                 # Ile swiec pobierac
+    cooldown_per_signal: int = 300               # Sekundy cooldown dla tego samego sygnalu
 
-    # ─── AI News Sentiment ──────────────────────────────────────────────────
+    # --- AI News Sentiment --------------------------------------------------
     use_sentiment: bool = False                  # Wlacz AI news sentiment filter
     cryptopanic_api_key: str = ""                # Also reads from CRYPTOPANIC_KEY env var
     finnhub_api_key: str = ""                    # Also reads from FINNHUB_KEY env var
     newsapi_key: str = ""                        # Also reads from NEWSAPI_KEY env var
     sentiment_refresh_interval: int = 300        # Sekundy miedzy refresh sentimentu
-    sentiment_block_threshold: float = 0.5       # |score| > tego → blokuj sygnal
+    sentiment_block_threshold: float = 0.5       # |score| > tego -> blokuj sygnal
 
-    # ─── Market Data Source ────────────────────────────────────────────────
-    market_source: str = "crypto"                 # "crypto", "stocks", "both"
+    # --- Market Data Source -------------------------------------------------
+    market_source: str = "both"                   # "crypto", "stocks", "both"
     # crypto = tylko Binance (ccxt)
-    # stocks = tylko YFinance (SPY, QQQ, akcje)
-    # both = auto-wybierz zrodl
+    # stocks = tylko YFinance
+    # both = auto-wybierz zrodlo (crypto->Binance, reszta->YFinance)
 
-    # ─── Stock/ETF Symbols (YFinance) ───────────────────────────────────────
+    # --- Stock/ETF Symbols (YFinance) - DEPRECATED, use index_symbols -------
     stock_symbols: List[str] = field(default_factory=lambda: [
-        "SP500",      # SPY ETF
-        "US100",      # QQQ ETF
+        "SP500",
+        "US100",
     ])
 
-    # ─── Position Tracking ──────────────────────────────────────────────────
+    # --- GLM AI Analyst ----------------------------------------------------
+    use_glm_analyst: bool = False                # Wlacz GLM AI Analyst
+    glm_api_key: str = ""                        # Also reads from GLM_API_KEY env var
+    glm_model: str = "glm-4-flash"              # glm-4-flash (fast/cheap), glm-4, glm-4-plus
+    glm_language: str = "pl"                     # pl, en
+
+    # GLM features (can toggle individual features)
+    glm_signal_scorer: bool = True               # Score each signal 1-10
+    glm_daily_briefing: bool = True              # Market briefing co 6h
+    glm_regime_detector: bool = True             # Classify market regime per pair
+    glm_multi_tf_confluence: bool = True         # Multi-TF confluence analysis
+    glm_eod_summary: bool = True                 # End-of-day summary
+
+    # --- Market Scanner KOMBAJN --------------------------------------------
+    use_market_scanner: bool = True              # Wlacz Market Scanner KOMBAJN
+    scanner_pulse: bool = True                   # Market Pulse co 1h
+    scanner_volatility: bool = True              # Volatility Scanner
+    scanner_sr: bool = True                      # Support/Resistance Monitor
+    scanner_sessions: bool = True                # Session Reporter (Azja/Europa/US)
+    scanner_correlation: bool = True             # Correlation Alert
+    scanner_pulse_interval: int = 3600           # Co ile sekund Market Pulse (default: 1h)
+    scanner_volatility_threshold: float = 2.0    # current/avg vol > tego = alert
+    scanner_sr_lookback: int = 50                # Ile swiec do detekcji S/R
+    scanner_sr_proximity_pct: float = 1.0        # % odleglosci do S/R alert
+    scanner_corr_threshold: float = 0.3          # Min rozstep korelacji do alertu
+
+    # --- Position Tracking --------------------------------------------------
     use_position_tracking: bool = True           # Sledzenie pozycji (INFO, nie egzekucja!)
-    auto_open_positions: bool = False             # ⚠️ False = ALERT ONLY, True = auto-otwieraj
-    position_db_path: str = ""                   # Auto-detected: /app/data/positions.db in Docker, positions.db locally
+    auto_open_positions: bool = False             # False = ALERT ONLY, True = auto-otwieraj
+    position_db_path: str = ""                   # Auto-detected
     default_position_size_usd: float = 100       # Domyslny rozmiar pozycji (USD)
     max_open_positions: int = 10                  # Max otwartych pozycji
     position_timeout_hours: float = 72           # Max czas otwartej pozycji (godziny)
 
-    # ─── Status Updates ────────────────────────────────────────────────────
-    status_interval: int = 3600                  # Co ile sekund wysyłać status na Discord
+    # --- Status Updates -----------------------------------------------------
+    status_interval: int = 3600                  # Co ile sekund wysylac status na Discord
     log_level: str = "INFO"                      # DEBUG, INFO, WARNING, ERROR
 
     def __post_init__(self):
@@ -116,38 +160,72 @@ class BotConfig:
             self.finnhub_api_key = os.getenv("FINNHUB_KEY", "")
         if not self.newsapi_key:
             self.newsapi_key = os.getenv("NEWSAPI_KEY", "")
+        if not self.glm_api_key:
+            self.glm_api_key = os.getenv("GLM_API_KEY", "")
         if not self.position_db_path:
             if os.path.isdir("/app/data"):
                 self.position_db_path = "/app/data/positions.db"
             else:
                 self.position_db_path = "positions.db"
 
+    def get_all_symbols(self) -> List[str]:
+        """Get combined list of all monitored symbols."""
+        all_symbols = list(self.symbols)
+        
+        if self.market_source in ("stocks", "both"):
+            for sym in self.commodity_symbols:
+                if sym not in all_symbols:
+                    all_symbols.append(sym)
+            for sym in self.forex_symbols:
+                if sym not in all_symbols:
+                    all_symbols.append(sym)
+            for sym in self.index_symbols:
+                if sym not in all_symbols:
+                    all_symbols.append(sym)
+            # Note: stock_symbols is deprecated, use index_symbols instead
+            # But keep for backward compatibility
+            for sym in self.stock_symbols:
+                if sym not in all_symbols:
+                    all_symbols.append(sym)
+        
+        return all_symbols
+
     def validate(self) -> List[str]:
-        """Waliduj konfigurację. Zwraca listę błędów."""
+        """Waliduj konfiguracje. Zwraca liste bledow."""
         errors = []
         if not self.discord_webhook_url:
             errors.append("discord_webhook_url jest wymagany!")
         elif not self.discord_webhook_url.startswith("https://discord.com/api/webhooks/") and \
            not self.discord_webhook_url.startswith("https://discordapp.com/api/webhooks/"):
-            errors.append(f"discord_webhook_url nie wygląda na prawidłowy webhook Discord")
+            errors.append(f"discord_webhook_url nie wyglada na prawidlowy webhook Discord")
         if self.scan_interval < 10:
-            errors.append("scan_interval musi być >= 10 sekund")
+            errors.append("scan_interval musi byc >= 10 sekund")
         if not self.symbols:
-            errors.append("symbols nie może być puste")
+            errors.append("symbols nie moze byc puste")
         if not self.timeframes:
-            errors.append("timeframes nie może być puste")
+            errors.append("timeframes nie moze byc puste")
         if self.trend_filter_mode not in ("alert", "block", "off"):
-            errors.append(f"trend_filter_mode musi być 'alert', 'block' lub 'off', jest '{self.trend_filter_mode}'")
+            errors.append(f"trend_filter_mode musi byc 'alert', 'block' lub 'off', jest '{self.trend_filter_mode}'")
         if self.market_source not in ("crypto", "stocks", "both"):
-            errors.append(f"market_source musi być 'crypto', 'stocks' lub 'both', jest '{self.market_source}'")
+            errors.append(f"market_source musi byc 'crypto', 'stocks' lub 'both', jest '{self.market_source}'")
+        if self.use_glm_analyst and not self.glm_api_key:
+            errors.append("use_glm_analyst=True ale glm_api_key jest puste! Ustaw GLM_API_KEY")
         return errors
 
     def summary(self) -> str:
         """Zwraca podsumowanie konfiguracji."""
-        trend_icon = {"alert": "⚠️", "block": "🚫", "off": "❌"}.get(self.trend_filter_mode, "?")
+        trend_icon = {"alert": "!!", "block": "X", "off": "-"}.get(self.trend_filter_mode, "?")
+        all_syms = self.get_all_symbols()
+        crypto_count = len(self.symbols)
+        tradfi_count = len(all_syms) - crypto_count
+        
         return (
             f"Exchange: {self.exchange}\n"
-            f"Symbols: {', '.join(self.symbols)}\n"
+            f"Crypto: {', '.join(self.symbols)}\n"
+            f"Surowce: {', '.join(self.commodity_symbols)}\n"
+            f"Forex: {', '.join(self.forex_symbols)}\n"
+            f"Indeksy: {', '.join(self.index_symbols)}\n"
+            f"Total symbols: {len(all_syms)} (crypto={crypto_count}, tradfi={tradfi_count})\n"
             f"Timeframes: {', '.join(self.timeframes)}\n"
             f"Stochastic: ({self.stoch_k_length}, {self.stoch_k_smooth}, {self.stoch_d_smooth})\n"
             f"Oversold: < {self.oversold_threshold} | Overbought: > {self.overbought_threshold}\n"
@@ -155,18 +233,30 @@ class BotConfig:
             f"Trend filter: {trend_icon} {self.trend_filter_mode}\n"
             f"Scan interval: {self.scan_interval}s\n"
             f"Market: {self.market_source}\n"
-            f"AI Sentiment: {'✅' if self.use_sentiment else '❌'}\n"
-            f"Position tracking: {'✅' if self.use_position_tracking else '❌'}\n"
-            f"Discord: {'✅' if self.discord_webhook_url else '❌'}"
+            f"AI Sentiment: {'YES' if self.use_sentiment else 'NO'}\n"
+            f"GLM AI Analyst: {'YES' if self.use_glm_analyst else 'NO'} (model={self.glm_model})\n"
+            f"  - Signal Scorer: {'YES' if self.glm_signal_scorer else 'NO'}\n"
+            f"  - Daily Briefing: {'YES' if self.glm_daily_briefing else 'NO'}\n"
+            f"  - Regime Detector: {'YES' if self.glm_regime_detector else 'NO'}\n"
+            f"  - Multi-TF Confluence: {'YES' if self.glm_multi_tf_confluence else 'NO'}\n"
+            f"  - EOD Summary: {'YES' if self.glm_eod_summary else 'NO'}\n"
+            f"Market Scanner: {'YES' if self.use_market_scanner else 'NO'}\n"
+            f"  - Pulse: {'YES' if self.scanner_pulse else 'NO'} ({self.scanner_pulse_interval}s)\n"
+            f"  - Volatility: {'YES' if self.scanner_volatility else 'NO'} (>{self.scanner_volatility_threshold}x)\n"
+            f"  - S/R Monitor: {'YES' if self.scanner_sr else 'NO'}\n"
+            f"  - Sessions: {'YES' if self.scanner_sessions else 'NO'}\n"
+            f"  - Correlation: {'YES' if self.scanner_correlation else 'NO'}\n"
+            f"Position tracking: {'YES' if self.use_position_tracking else 'NO'}\n"
+            f"Discord: {'YES' if self.discord_webhook_url else 'NO'}"
         )
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 # PRESET CONFIGURATIONS
-# ═══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 
 def config_aggressive() -> BotConfig:
-    """Agresywna konfiguracja — więcej sygnałów, luźniejsze filtry."""
+    """Agresywna konfiguracja - wiecej sygnalow, luzniejsze filtry."""
     return BotConfig(
         oversold_threshold=25.0,
         overbought_threshold=75.0,
@@ -178,7 +268,7 @@ def config_aggressive() -> BotConfig:
 
 
 def config_conservative() -> BotConfig:
-    """Konserwatywna konfiguracja — mniej sygnałów, mocniejsze filtry."""
+    """Konserwatywna konfiguracja - mniej sygnalow, mocniejsze filtry."""
     return BotConfig(
         oversold_threshold=15.0,
         overbought_threshold=85.0,
@@ -194,7 +284,7 @@ def config_conservative() -> BotConfig:
 
 
 def config_scalping() -> BotConfig:
-    """Konfiguracja pod skalping — niskie TF, szybkie skanowanie."""
+    """Konfiguracja pod skalping - niskie TF, szybkie skanowanie."""
     return BotConfig(
         symbols=["BTC/USDT", "ETH/USDT", "SOL/USDT"],
         timeframes=["1m", "5m"],
@@ -202,4 +292,15 @@ def config_scalping() -> BotConfig:
         candles_per_fetch=50,
         require_crossover=True,
         cooldown_per_signal=60,
+    )
+
+
+def config_multi_asset() -> BotConfig:
+    """Konfiguracja multi-asset - crypto + surowce + forex + indeksy + KOMBAJN."""
+    return BotConfig(
+        market_source="both",
+        timeframes=["15m", "1h", "4h"],
+        scan_interval=90,
+        use_glm_analyst=True,
+        use_market_scanner=True,
     )

@@ -559,8 +559,22 @@ class NeuralWeightOscillator:
         stoch_k_cross_d_up = (stoch_k.shift(1) <= stoch_d.shift(1)) & (stoch_k > stoch_d)
         stoch_k_cross_d_down = (stoch_k.shift(1) >= stoch_d.shift(1)) & (stoch_k < stoch_d)
         
+        # v3: Strict signals — crossover in extreme zones (original)
         stoch_bull = stoch_k_cross_d_up & (stoch_k < cfg.stoch_oversold)
         stoch_bear = stoch_k_cross_d_down & (stoch_k > cfg.stoch_overbought)
+        
+        # v3: Relaxed signals — crossover in wider zones (more signals)
+        stoch_bull_relaxed = stoch_k_cross_d_up & (stoch_k < 30)
+        stoch_bear_relaxed = stoch_k_cross_d_down & (stoch_k > 70)
+        
+        # v3: Zone-only signals — K enters/exits extreme zones (most signals)
+        k_enter_oversold = (stoch_k.shift(1) >= 20) & (stoch_k < 20)
+        k_exit_oversold = (stoch_k.shift(1) < 30) & (stoch_k >= 30)
+        k_enter_overbought = (stoch_k.shift(1) <= 80) & (stoch_k > 80)
+        k_exit_overbought = (stoch_k.shift(1) > 70) & (stoch_k <= 70)
+        
+        stoch_bull_zone = k_enter_oversold | (k_exit_oversold & stoch_k_cross_d_up)
+        stoch_bear_zone = k_enter_overbought | (k_exit_overbought & stoch_k_cross_d_down)
         
         # ─── CVD Signals ───────────────────────────────────────────────────
         cvd_bull = cvd > cfg.cvd_threshold
@@ -578,13 +592,23 @@ class NeuralWeightOscillator:
         # NWO  = DIRECTION FILTER (momentum confirmation)
         # CVD  = VOLUME CONFIRMATION (threshold ±1.0)
         
-        # Level 1: Stoch trigger + NWO direction filter
-        combined_bull = stoch_bull & nwo_bullish_filter
-        combined_bear = stoch_bear & nwo_bearish_filter
+        # v3: Multi-level signal hierarchy
         
-        # Level 2: Full confluence (Stoch + NWO + CVD all align)
-        confluence_bull = stoch_bull & nwo_bullish_filter & cvd_bull
-        confluence_bear = stoch_bear & nwo_bearish_filter & cvd_bear
+        # Level 0: STOCH-ONLY (relaxed zone) — lowest confidence, most signals
+        stoch_only_bull = stoch_bull_zone
+        stoch_only_bear = stoch_bear_zone
+        
+        # Level 1: STOCH-RELAXED + NWO direction filter
+        combined_bull = stoch_bull_relaxed & nwo_bullish_filter
+        combined_bear = stoch_bear_relaxed & nwo_bearish_filter
+        
+        # Level 1b: Original strict Stoch + NWO (high confidence)
+        strict_combined_bull = stoch_bull & nwo_bullish_filter
+        strict_combined_bear = stoch_bear & nwo_bearish_filter
+        
+        # Level 2: Full confluence (Stoch + NWO + CVD all align) — highest confidence
+        confluence_bull = stoch_bull_relaxed & nwo_bullish_filter & cvd_bull
+        confluence_bear = stoch_bear_relaxed & nwo_bearish_filter & cvd_bear
         
         return {
             # NWO core
@@ -605,17 +629,29 @@ class NeuralWeightOscillator:
             "stoch_d": stoch_d,
             "stoch_bull": stoch_bull,
             "stoch_bear": stoch_bear,
+            "stoch_bull_relaxed": stoch_bull_relaxed,
+            "stoch_bear_relaxed": stoch_bear_relaxed,
+            "stoch_bull_zone": stoch_bull_zone,
+            "stoch_bear_zone": stoch_bear_zone,
             
             # CVD
             "cvd": cvd,
             "cvd_bull": cvd_bull,
             "cvd_bear": cvd_bear,
             
-            # Combined (v2: Stoch + NWO filter)
+            # Stoch-only (v3: relaxed zone signals)
+            "stoch_only_bull": stoch_only_bull,
+            "stoch_only_bear": stoch_only_bear,
+            
+            # Combined (v3: relaxed Stoch + NWO filter)
             "combined_bull": combined_bull,
             "combined_bear": combined_bear,
             
-            # Confluence (v2: Stoch + NWO filter + CVD)
+            # Strict combined (v3: original strict Stoch + NWO)
+            "strict_combined_bull": strict_combined_bull,
+            "strict_combined_bear": strict_combined_bear,
+            
+            # Confluence (v3: Stoch + NWO filter + CVD)
             "confluence_bull": confluence_bull,
             "confluence_bear": confluence_bear,
             
@@ -654,11 +690,19 @@ class NeuralWeightOscillator:
             "stoch_d": nan_series.copy(),
             "stoch_bull": pd.Series([False] * n),
             "stoch_bear": pd.Series([False] * n),
+            "stoch_bull_relaxed": pd.Series([False] * n),
+            "stoch_bear_relaxed": pd.Series([False] * n),
+            "stoch_bull_zone": pd.Series([False] * n),
+            "stoch_bear_zone": pd.Series([False] * n),
             "cvd": nan_series.copy(),
             "cvd_bull": pd.Series([False] * n),
             "cvd_bear": pd.Series([False] * n),
+            "stoch_only_bull": pd.Series([False] * n),
+            "stoch_only_bear": pd.Series([False] * n),
             "combined_bull": pd.Series([False] * n),
             "combined_bear": pd.Series([False] * n),
+            "strict_combined_bull": pd.Series([False] * n),
+            "strict_combined_bear": pd.Series([False] * n),
             "confluence_bull": pd.Series([False] * n),
             "confluence_bear": pd.Series([False] * n),
             "nwo_bullish_filter": pd.Series([False] * n),

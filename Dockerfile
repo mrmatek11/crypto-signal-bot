@@ -26,7 +26,7 @@ COPY entrypoint.sh ./
 RUN chmod +x entrypoint.sh
 
 # Create data dir for SQLite
-RUN mkdir -p /data
+RUN mkdir -p /app/data
 
 # Environment defaults (override with .env or docker-compose)
 ENV DISCORD_WEBHOOK="" \
@@ -38,6 +38,8 @@ ENV DISCORD_WEBHOOK="" \
     SENTIMENT=false \
     CRYPTOPANIC_KEY="" \
     FINNHUB_KEY="" \
+    GLM_API_KEY="" \
+    GLM_MODEL=glm-4-flash \
     LOG_LEVEL=INFO \
     POSITION_SIZE=100
 

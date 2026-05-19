@@ -13,6 +13,7 @@ echo "   Timeframes: ${TIMEFRAMES:-5m,15m,1h}"
 echo "   Trend filter: ${TREND_FILTER:-alert}"
 echo "   Market: ${MARKET:-crypto}"
 echo "   AI Sentiment: ${SENTIMENT:-false}"
+echo "   GLM AI Analyst: ${GLM_API_KEY:+✅}${GLM_API_KEY:-❌}"
 echo "═════════════════════════════════════════════════════════"
 
 # Build command using bash array (proper quoting)
@@ -65,9 +66,46 @@ if [ -n "$FINNHUB_KEY" ]; then
     ARGS+=("--finnhub-key" "$FINNHUB_KEY")
 fi
 
+# GLM AI Analyst
+if [ -n "$GLM_API_KEY" ]; then
+    ARGS+=("--glm-key" "$GLM_API_KEY")
+fi
+if [ -n "$GLM_MODEL" ]; then
+    ARGS+=("--glm-model" "$GLM_MODEL")
+fi
+if [ -n "$GLM_LANG" ]; then
+    ARGS+=("--glm-lang" "$GLM_LANG")
+fi
+if [ "$GLM_DISABLED" = "true" ]; then
+    ARGS+=("--no-glm")
+fi
+
 # Position size
 if [ -n "$POSITION_SIZE" ]; then
     ARGS+=("--position-size" "$POSITION_SIZE")
+fi
+
+# Market Scanner
+if [ "$SCANNER_DISABLED" = "true" ]; then
+    ARGS+=("--no-scanner")
+fi
+if [ -n "$SCANNER_PULSE_INTERVAL" ]; then
+    ARGS+=("--scanner-pulse" "$SCANNER_PULSE_INTERVAL")
+fi
+if [ "$SCANNER_PULSE_DISABLED" = "true" ]; then
+    ARGS+=("--no-scanner-pulse")
+fi
+if [ "$SCANNER_VOL_DISABLED" = "true" ]; then
+    ARGS+=("--no-scanner-vol")
+fi
+if [ "$SCANNER_SR_DISABLED" = "true" ]; then
+    ARGS+=("--no-scanner-sr")
+fi
+if [ "$SCANNER_SESSIONS_DISABLED" = "true" ]; then
+    ARGS+=("--no-scanner-sessions")
+fi
+if [ "$SCANNER_CORR_DISABLED" = "true" ]; then
+    ARGS+=("--no-scanner-corr")
 fi
 
 # Log level

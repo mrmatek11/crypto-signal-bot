@@ -1,20 +1,29 @@
 """
-Custom Strategy v2 (FIXED): NWO (filtr) + Stoch(7,3,2) (trigger) + CVD (potwierdzenie)
+Custom Strategy v4: NWO (filtr) + Stoch(7,3,2) (trigger) + CVD (potwierdzenie)
 ═══════════════════════════════════════════════════════════════════════════════
 
-FIX vs poprzednia wersja:
-  1. NWO filter = HISTOGRAM direction (spójne z backtest.py!)
-     - histogram > 0 → NWO momentum bullish (osc powyżej signal line)
-     - histogram < 0 → NWO momentum bearish (osc poniżej signal line)
-  2. Signal hierarchy = CONFLUENCE → STOCH+NWO (spójne z backtest.py!)
-  3. Trend filter = ALERT mode (default) — sygnał alertowany z ostrzeżeniem
-     - Opcja "block" — całkowita blokada (z configu)
-     - Opcja "off" — brak filtra trendu
-  4. SL/TP = 3x ATR / 4.5x ATR (spójne z backtest.py!)
+v4 CHANGES vs v3:
+  - MULTI-MARKET: CVD adaptive thresholds per market type
+    * Crypto: CVD ±0.5 (relaxed), ±1.0 (confluence) — standard
+    * Trad (index/forex/commodity): CVD ±0.3 (relaxed), ±0.5 (confluence)
+      → Niższe thresholdy bo YFinance volume jest mniej dokładny niż Binance
+  - CVD_NOT_AVAILABLE flag: jeśli volume=0 przez wiele barów (zamknięty rynek),
+    pomijaj CVD entirely i używaj STOCH+NWO jako najwyższy tier
 
-Hierarchia sygnałów:
-  ⚡ CONFLUENCE → Stoch + NWO histogram + CVD (najsilniejszy)
-  📊 STOCH+NWO  → Stoch + NWO histogram (główny trigger + filtr)
+v3 CHANGES (zachowane):
+  1. MULTI-LEVEL signal hierarchy (4 poziomy):
+     ⚡ CONFLUENCE  → Stoch(relaxed) + NWO + CVD (najsilniejszy)
+     📊 STOCH+NWO   → Stoch(relaxed) + NWO histogram (główny trigger + filtr)
+     🔵 STOCH-ONLY  → Stoch zone (K wchodzi/wychodzi z OB/OS) (najsłabszy)
+     🟡 STOCH STRICT → Stoch strict (K<20/K>80) + NWO (oryginalny v2)
+  2. RELAXED Stochastic thresholds: K<30/K>70 (zamiast K<20/K>80)
+  3. Sentiment filter OPCJONALNY — wywoływany TYLKO gdy use_sentiment=True
+
+Hierarchia sygnałów (od najsilniejszego):
+  ⚡ CONFLUENCE   → Stoch(relaxed) + NWO histogram + CVD (wszystko się zgadza)
+  📊 STOCH+NWO    → Stoch(relaxed) + NWO histogram (główny trigger + filtr)
+  🔵 STOCH STRICT → Stoch(strict, K<20/80) + NWO (oryginalny v2, wysoka pewność)
+  🟡 STOCH-ONLY   → Stoch zone signal (K wchodzi/wychodzi z OB/OS, brak NWO/CVD)
 """
 
 import pandas as pd
@@ -27,6 +36,7 @@ from neural_weight_oscillator import NeuralWeightOscillator, NWOConfig, calc_atr
 
 # Global sentiment engine (lazy init)
 _sentiment_engine = None
+_use_sentiment = False  # Domyślnie OFF — włącza config.use_sentiment
 
 
 def get_sentiment_engine():
@@ -38,8 +48,14 @@ def get_sentiment_engine():
     return _sentiment_engine
 
 
+def set_sentiment_enabled(enabled: bool):
+    """Enable or disable sentiment filter (called from bot.py based on config)."""
+    global _use_sentiment
+    _use_sentiment = enabled
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
-# STRATEGY v2 (FIXED): NWO histogram filter + Stoch trigger + CVD confirm
+# STRATEGY v3: Multi-level NWO histogram filter + Stoch trigger + CVD confirm
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # Per-symbol NWO instances
@@ -51,10 +67,10 @@ SL_ATR_MULT = 3.0
 TP_ATR_MULT = 4.5
 
 # Trend filter mode:
-#   "alert" = alertuj z ostrzeżeniem ⚠️ (default — widzisz sygnał, ale wiesz że ryzykowny)
+#   "alert" = alertuj z ostrzeżeniem ⚠️ (default)
 #   "block" = całkowita blokada — nie alertuj w ogóle
 #   "off"   = brak filtra trendu
-TREND_FILTER_MODE = "alert"  # zmienione z "block" na "alert"
+TREND_FILTER_MODE = "alert"
 
 
 def get_nwo_instance(symbol: str, timeframe: str, config: NWOConfig = None) -> NeuralWeightOscillator:
@@ -77,13 +93,18 @@ def get_nwo_instance(symbol: str, timeframe: str, config: NWOConfig = None) -> N
 
 def strategy_nwo_stoch_cvd(df: pd.DataFrame, symbol: str, timeframe: str) -> List[Signal]:
     """
-    Strategia v2 FIXED: NWO histogram jako filtr + Stoch jako trigger + CVD jako potwierdzenie.
+    Strategia v4: NWO histogram jako filtr + Stoch jako trigger + CVD jako potwierdzenie.
     
-    Logika IDENTYCZNA jak w backtest.py:
-    - histogram > 0 → NWO bullish filter
-    - histogram < 0 → NWO bearish filter
-    - CONFLUENCE = Stoch + NWO + CVD all align
-    - STOCH+NWO = Stoch + NWO histogram align
+    v4: Adaptive CVD thresholds per market type:
+      - Crypto: CVD ±0.5 (relaxed), ±1.0 (confluence)
+      - Trad (index/forex/commodity): CVD ±0.3 (relaxed), ±0.5 (confluence)
+      - Jeśli volume=0 na wielu barach (zamknięty rynek), pomijaj CVD
+    
+    Hierarchia sygnałów (od najsilniejszego):
+      ⚡ CONFLUENCE   → Stoch(relaxed) + NWO + CVD all align
+      📊 STOCH+NWO    → Stoch(relaxed) + NWO histogram align  
+      🔵 STOCH STRICT → Stoch(strict K<20/80) + NWO (oryginalny v2)
+      🟡 STOCH-ONLY   → Stoch zone signal (K enters/exits OB/OS)
     """
     signals = []
     
@@ -111,7 +132,35 @@ def strategy_nwo_stoch_cvd(df: pd.DataFrame, symbol: str, timeframe: str) -> Lis
     atr_series = calc_atr(df['high'], df['low'], df['close'], 14)
     current_atr = atr_series.iloc[i] if not pd.isna(atr_series.iloc[i]) else 0
     
-    if pd.isna(stoch_k) or pd.isna(cvd_val) or pd.isna(histogram_val):
+    if pd.isna(stoch_k) or pd.isna(histogram_val):
+        return signals
+    
+    # ─── Detect Market Type (v4) ────────────────────────────────────
+    is_trad_market = False
+    market_type = "CRYPTO"
+    try:
+        from data_fetcher_yfinance import YFinanceDataFetcher
+        market_type = YFinanceDataFetcher.get_market_type(symbol)
+        is_trad_market = market_type in ("INDEX", "FOREX", "COMMODITY")
+    except ImportError:
+        pass
+    
+    # ─── CVD Availability Check (v4) ────────────────────────────────
+    # Traditional markets may have volume=0 when closed → CVD unreliable
+    cvd_available = True
+    if is_trad_market:
+        # Check last 5 bars for zero volume (market closed)
+        recent_volume = df['volume'].iloc[-5:] if 'volume' in df.columns else pd.Series([1]*5)
+        if len(recent_volume) > 0 and recent_volume.sum() == 0:
+            cvd_available = False
+        # Also check if CVD is NaN (often the case for forex)
+        if pd.isna(cvd_val):
+            cvd_available = False
+    
+    # If CVD not available, skip NaN check and set to 0
+    if not cvd_available:
+        cvd_val = 0.0
+    elif pd.isna(cvd_val):
         return signals
     
     # ─── Trend Filter: EMA20 vs EMA100 ────────────────────────────────
@@ -120,13 +169,29 @@ def strategy_nwo_stoch_cvd(df: pd.DataFrame, symbol: str, timeframe: str) -> Lis
     uptrend = ema20.iloc[i] > ema100.iloc[i] if not pd.isna(ema20.iloc[i]) and not pd.isna(ema100.iloc[i]) else None
     downtrend = ema20.iloc[i] < ema100.iloc[i] if uptrend is not None else None
     
-    # ─── NWO Direction Filter (FIXED: histogram-based, spójne z backtest) ─
-    nwo_bullish = histogram_val > 0  # Osc powyżej signal line = bullish momentum
-    nwo_bearish = histogram_val < 0  # Osc poniżej signal line = bearish momentum
+    # ─── NWO Direction Filter (histogram-based) ─────────────────────
+    nwo_bullish = histogram_val > 0
+    nwo_bearish = histogram_val < 0
     
-    # ─── CVD Confirmation (threshold ±1.0) ────────────────────────────
-    cvd_bull_confirm = cvd_val > 1.0
-    cvd_bear_confirm = cvd_val < -1.0
+    # ─── CVD Confirmation (v4: adaptive thresholds) ──────────────────
+    if is_trad_market:
+        cvd_bull_confirm_strict = cvd_val > 0.5    # Trad: niższy threshold
+        cvd_bear_confirm_strict = cvd_val < -0.5
+        cvd_bull_confirm_relaxed = cvd_val > 0.3   # Trad: jeszcze niższy
+        cvd_bear_confirm_relaxed = cvd_val < -0.3
+    else:
+        cvd_bull_confirm_strict = cvd_val > 1.0    # Crypto: oryginalny
+        cvd_bear_confirm_strict = cvd_val < -1.0
+        cvd_bull_confirm_relaxed = cvd_val > 0.5   # Crypto: relaxed v3
+        cvd_bear_confirm_relaxed = cvd_val < -0.5
+    
+    # ─── Stoch signal levels ──────────────────────────────────────────
+    stoch_bull_strict = bool(result["stoch_bull"].iloc[i])          # K cross D + K<20 (oryginalny)
+    stoch_bear_strict = bool(result["stoch_bear"].iloc[i])          # K cross D + K>80 (oryginalny)
+    stoch_bull_relaxed = bool(result["stoch_bull_relaxed"].iloc[i]) # K cross D + K<30 (v3)
+    stoch_bear_relaxed = bool(result["stoch_bear_relaxed"].iloc[i]) # K cross D + K>70 (v3)
+    stoch_bull_zone = bool(result["stoch_bull_zone"].iloc[i])       # K enters/exits OB zone (v3)
+    stoch_bear_zone = bool(result["stoch_bear_zone"].iloc[i])       # K enters/exits OS zone (v3)
     
     # ─── Pre-compute SL/TP ────────────────────────────────────────────
     if current_atr > 0:
@@ -138,26 +203,50 @@ def strategy_nwo_stoch_cvd(df: pd.DataFrame, symbol: str, timeframe: str) -> Lis
         sl_long = tp_long = sl_short = tp_short = 0
     
     # ═════════════════════════════════════════════════════════════════════
-    # LONG SIGNALS
+    # LONG SIGNALS (hierarchia — najsilniejszy sygnał wygrywa)
     # ═════════════════════════════════════════════════════════════════════
     
     go_long = False
     source = ""
     reason = ""
+    confidence = "MEDIUM"  # confidence level for display
     
-    # Priority 1: CONFLUENCE (Stoch + NWO + CVD all align)
-    if result["stoch_bull"].iloc[i] and nwo_bullish and cvd_bull_confirm:
+    # Priority 1: CONFLUENCE (Stoch relaxed + NWO + CVD all align) — NAJSILNIEJSZY
+    # v4: Jeśli CVD unavailable (trad market closed), CONFLUENCE wymaga tylko Stoch+NWO
+    if stoch_bull_relaxed and nwo_bullish and (cvd_bull_confirm_relaxed if cvd_available else True):
         go_long = True
         source = "CONFLUENCE"
-        reason = (f"CONFLUENCE LONG: Stoch({stoch_k:.1f}) x D({stoch_d:.1f}) oversold | "
-                 f"NWO hist={histogram_val:.2f}(>0) | CVD={cvd_val:.2f}(>+1.0)")
+        confidence = "HIGH"
+        if cvd_available:
+            reason = (f"CONFLUENCE LONG: Stoch({stoch_k:.1f}) x D({stoch_d:.1f}) | "
+                     f"NWO hist={histogram_val:.2f}(>0) | CVD={cvd_val:.2f}(>+{0.3 if is_trad_market else 0.5})")
+        else:
+            reason = (f"CONFLUENCE LONG: Stoch({stoch_k:.1f}) x D({stoch_d:.1f}) | "
+                     f"NWO hist={histogram_val:.2f}(>0) | CVD=N/A (market closed)")
     
-    # Priority 2: STOCH+NWO (Stoch trigger + NWO filter)
-    elif result["stoch_bull"].iloc[i] and nwo_bullish:
+    # Priority 2: STOCH+NWO (Stoch relaxed + NWO filter) — GŁÓWNY TRIGGER
+    elif stoch_bull_relaxed and nwo_bullish:
         go_long = True
         source = "STOCH+NWO"
-        reason = (f"STOCH+NWO LONG: Stoch({stoch_k:.1f}) x D({stoch_d:.1f}) oversold | "
+        confidence = "MEDIUM"
+        reason = (f"STOCH+NWO LONG: Stoch({stoch_k:.1f}) x D({stoch_d:.1f}) | "
                  f"NWO hist={histogram_val:.2f}(>0 bullish)")
+    
+    # Priority 3: STOCH STRICT + NWO (oryginalny v2 — wysoka pewność, rzadszy)
+    elif stoch_bull_strict and nwo_bullish:
+        go_long = True
+        source = "STOCH STRICT+NWO"
+        confidence = "HIGH"
+        reason = (f"STOCH STRICT+NWO LONG: Stoch({stoch_k:.1f}) x D({stoch_d:.1f}) K<20 | "
+                 f"NWO hist={histogram_val:.2f}(>0)")
+    
+    # Priority 4: STOCH-ONLY (zone signal — najsłabszy, ale najczęstszy)
+    elif stoch_bull_zone:
+        go_long = True
+        source = "STOCH-ONLY"
+        confidence = "LOW"
+        reason = (f"STOCH-ONLY LONG: Stoch({stoch_k:.1f}) D({stoch_d:.1f}) oversold zone | "
+                 f"NWO hist={histogram_val:.2f} | CVD={cvd_val:+.2f}")
     
     # Trend filter
     long_against_trend = go_long and downtrend
@@ -172,7 +261,6 @@ def strategy_nwo_stoch_cvd(df: pd.DataFrame, symbol: str, timeframe: str) -> Lis
     if go_long:
         if uptrend:
             reason += " | Trend: UP ✅"
-        # downtrend case already annotated above
     
     if go_long:
         signals.append(Signal(
@@ -188,35 +276,62 @@ def strategy_nwo_stoch_cvd(df: pd.DataFrame, symbol: str, timeframe: str) -> Lis
                 "cvd": round(cvd_val, 2),
                 "histogram": round(histogram_val, 4),
                 "source": source,
+                "confidence": confidence,
                 "trend": "UP" if uptrend else ("DOWN" if downtrend else "?"),
                 "sl": round(sl_long, 2),
                 "tp": round(tp_long, 2),
                 "sl_atr_mult": SL_ATR_MULT,
                 "tp_atr_mult": TP_ATR_MULT,
-                "against_trend": long_against_trend,  # ⚠️ flag for Discord
-                "risk_level": "HIGH" if long_against_trend else "NORMAL",
+                "against_trend": long_against_trend,
+                "risk_level": "HIGH" if long_against_trend else ("MEDIUM" if confidence == "LOW" else "NORMAL"),
             }
         ))
     
     # ═════════════════════════════════════════════════════════════════════
-    # SHORT SIGNALS
+    # SHORT SIGNALS (hierarchia — najsilniejszy sygnał wygrywa)
     # ═════════════════════════════════════════════════════════════════════
     
     go_short = False
+    source = ""
+    reason = ""
+    confidence = "MEDIUM"
     
-    # Priority 1: CONFLUENCE (Stoch + NWO + CVD all align)
-    if result["stoch_bear"].iloc[i] and nwo_bearish and cvd_bear_confirm:
+    # Priority 1: CONFLUENCE (Stoch relaxed + NWO + CVD all align) — NAJSILNIEJSZY
+    # v4: Jeśli CVD unavailable (trad market closed), CONFLUENCE wymaga tylko Stoch+NWO
+    if stoch_bear_relaxed and nwo_bearish and (cvd_bear_confirm_relaxed if cvd_available else True):
         go_short = True
         source = "CONFLUENCE"
-        reason = (f"CONFLUENCE SHORT: Stoch({stoch_k:.1f}) x D({stoch_d:.1f}) overbought | "
-                 f"NWO hist={histogram_val:.2f}(<0) | CVD={cvd_val:.2f}(<-1.0)")
+        confidence = "HIGH"
+        if cvd_available:
+            reason = (f"CONFLUENCE SHORT: Stoch({stoch_k:.1f}) x D({stoch_d:.1f}) | "
+                     f"NWO hist={histogram_val:.2f}(<0) | CVD={cvd_val:.2f}(<-{0.3 if is_trad_market else 0.5})")
+        else:
+            reason = (f"CONFLUENCE SHORT: Stoch({stoch_k:.1f}) x D({stoch_d:.1f}) | "
+                     f"NWO hist={histogram_val:.2f}(<0) | CVD=N/A (market closed)")
     
-    # Priority 2: STOCH+NWO (Stoch trigger + NWO filter)
-    elif result["stoch_bear"].iloc[i] and nwo_bearish:
+    # Priority 2: STOCH+NWO (Stoch relaxed + NWO filter) — GŁÓWNY TRIGGER
+    elif stoch_bear_relaxed and nwo_bearish:
         go_short = True
         source = "STOCH+NWO"
-        reason = (f"STOCH+NWO SHORT: Stoch({stoch_k:.1f}) x D({stoch_d:.1f}) overbought | "
+        confidence = "MEDIUM"
+        reason = (f"STOCH+NWO SHORT: Stoch({stoch_k:.1f}) x D({stoch_d:.1f}) | "
                  f"NWO hist={histogram_val:.2f}(<0 bearish)")
+    
+    # Priority 3: STOCH STRICT + NWO (oryginalny v2 — wysoka pewność, rzadszy)
+    elif stoch_bear_strict and nwo_bearish:
+        go_short = True
+        source = "STOCH STRICT+NWO"
+        confidence = "HIGH"
+        reason = (f"STOCH STRICT+NWO SHORT: Stoch({stoch_k:.1f}) x D({stoch_d:.1f}) K>80 | "
+                 f"NWO hist={histogram_val:.2f}(<0)")
+    
+    # Priority 4: STOCH-ONLY (zone signal — najsłabszy, ale najczęstszy)
+    elif stoch_bear_zone:
+        go_short = True
+        source = "STOCH-ONLY"
+        confidence = "LOW"
+        reason = (f"STOCH-ONLY SHORT: Stoch({stoch_k:.1f}) D({stoch_d:.1f}) overbought zone | "
+                 f"NWO hist={histogram_val:.2f} | CVD={cvd_val:+.2f}")
     
     # Trend filter
     short_against_trend = go_short and uptrend
@@ -231,7 +346,6 @@ def strategy_nwo_stoch_cvd(df: pd.DataFrame, symbol: str, timeframe: str) -> Lis
     if go_short:
         if downtrend:
             reason += " | Trend: DOWN ✅"
-        # uptrend case already annotated above
     
     if go_short:
         signals.append(Signal(
@@ -247,42 +361,40 @@ def strategy_nwo_stoch_cvd(df: pd.DataFrame, symbol: str, timeframe: str) -> Lis
                 "cvd": round(cvd_val, 2),
                 "histogram": round(histogram_val, 4),
                 "source": source,
+                "confidence": confidence,
                 "trend": "UP" if uptrend else ("DOWN" if downtrend else "?"),
                 "sl": round(sl_short, 2),
                 "tp": round(tp_short, 2),
                 "sl_atr_mult": SL_ATR_MULT,
                 "tp_atr_mult": TP_ATR_MULT,
-                "against_trend": short_against_trend,  # ⚠️ flag for Discord
-                "risk_level": "HIGH" if short_against_trend else "NORMAL",
+                "against_trend": short_against_trend,
+                "risk_level": "HIGH" if short_against_trend else ("MEDIUM" if confidence == "LOW" else "NORMAL"),
             }
         ))
     
-    # ─── Sentiment Filter ─────────────────────────────────────────────
-    # Filtruj sygnały na bazie AI news sentiment (jeśli dostępny)
-    try:
-        engine = get_sentiment_engine()
-        sentiment = engine.get_sentiment(symbol)
-        
-        filtered_signals = []
-        for sig in signals:
-            should_block, sentiment_reason = engine.should_filter_signal(sig.signal_type, sentiment)
-            if should_block:
-                # Nie wysyłaj sygnału, ale zaloguj
-                sig.reason += f" [SENTIMENT BLOCK: {sentiment_reason}]"
-                # Nie dodaj do filtered_signals → sygnał zablokowany
-            else:
-                # Dodaj sentiment info do sygnału
-                sig.extra_data["sentiment_score"] = round(sentiment.score, 2)
-                sig.extra_data["sentiment_label"] = sentiment.label
-                sig.extra_data["sentiment_summary"] = sentiment.summary
-                if "caution" in sentiment_reason.lower():
-                    sig.reason += f" | 📰 {sentiment_reason}"
-                filtered_signals.append(sig)
-        
-        signals = filtered_signals
-    except Exception:
-        # Sentiment failure nie powinien blokować sygnałów
-        pass
+    # ─── Sentiment Filter (OPCJONALNY — TYLKO gdy use_sentiment=True) ─
+    if _use_sentiment:
+        try:
+            engine = get_sentiment_engine()
+            sentiment = engine.get_sentiment(symbol)
+            
+            filtered_signals = []
+            for sig in signals:
+                should_block, sentiment_reason = engine.should_filter_signal(sig.signal_type, sentiment)
+                if should_block:
+                    sig.reason += f" [SENTIMENT BLOCK: {sentiment_reason}]"
+                else:
+                    sig.extra_data["sentiment_score"] = round(sentiment.score, 2)
+                    sig.extra_data["sentiment_label"] = sentiment.label
+                    sig.extra_data["sentiment_summary"] = sentiment.summary
+                    if "caution" in sentiment_reason.lower():
+                        sig.reason += f" | 📰 {sentiment_reason}"
+                    filtered_signals.append(sig)
+            
+            signals = filtered_signals
+        except Exception:
+            # Sentiment failure nie powinien blokować sygnałów
+            pass
     
     return signals
 
@@ -356,8 +468,8 @@ STRATEGY_REGISTRY = {
         "fn": None,  # Używa SignalDetector (domyślna)
     },
     "nwo_stoch_cvd": {
-        "name": "NWO(filtr) + Stoch(trigger) + CVD v2",
-        "description": "v2 FIXED: NWO histogram filter + Stochastic trigger + CVD + trend filter (alert/block/off)",
+        "name": "NWO(filtr) + Stoch(trigger) + CVD v4",
+        "description": "v4: Multi-market (crypto+index+forex+commodity) | Adaptive CVD thresholds | Multi-level signals | Optional sentiment",
         "fn": strategy_nwo_stoch_cvd,
     },
     "custom_pinescript": {
